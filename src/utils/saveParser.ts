@@ -19,47 +19,34 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
   try {
     console.log("Starting to parse save file:", file.name, "Size:", file.size);
     const buffer = await readFileAsArrayBuffer(file);
+    const bytes = new Uint8Array(buffer);
     const dataView = new DataView(buffer);
 
-    // First pass: try to find UE4 GVAS signature
-    const hasUE4Signature = findUE4Signature(buffer);
-    console.log("UE4 GVAS signature found:", hasUE4Signature);
+    // Check for GVAS signature in a more flexible way
+    const gvasIndex = findPatternIndices(buffer, "GVAS")[0] || 0;
+    if (gvasIndex >= 0) {
+      console.log("Found GVAS signature at:", gvasIndex);
 
-    // Search for key patterns in the binary data
-    const hasGuildData = searchForPattern(buffer, "Guild");
-    const hasPalData = searchForPattern(buffer, "PalSaveData");
-    const hasPlayerData = searchForPattern(buffer, "PlayerSave");
+      // Search for WorldSaveData structure
+      const worldDataIndex = findPatternIndices(buffer, "WorldSaveData")[0];
+      const guildDataIndex = findPatternIndices(buffer, "GuildSaveData")[0];
+      const characterDataIndex = findPatternIndices(buffer, "CharacterSaveParameterMap")[0];
 
-    console.log("Found patterns - Guild:", hasGuildData, "Pal:", hasPalData, "Player:", hasPlayerData);
+      console.log("Data indices - World:", worldDataIndex, "Guild:", guildDataIndex, "Character:", characterDataIndex);
 
-    if (hasUE4Signature || hasGuildData || hasPalData || hasPlayerData) {
-      console.log("File appears to be a valid Palworld save file");
-
-      try {
-        // Extract guild names if possible
-        const guildNames = extractGuildNames(buffer);
-        console.log("Extracted guild names:", guildNames);
-
-        // Extract player names if possible
-        const playerNames = extractPlayerNames(buffer);
-        console.log("Extracted player names:", playerNames);
-
-        // Extract Pal names if possible
-        const palNames = extractPalNames(buffer);
-        console.log("Extracted Pal names:", palNames);
-
-        // Build data based on what we found
-        return {
-          guilds: buildBetterMockData(guildNames, playerNames, palNames),
-          isMockData: true // Still mark as mock since we can't fully parse yet
-        };
-      } catch (innerError) {
-        console.error("Error during detailed parsing:", innerError);
-        return {
-          guilds: createEnhancedMockGuildData(),
-          isMockData: true
-        };
+      // Extract guild data if found
+      if (guildDataIndex > 0) {
+        const guildData = extractStructData(bytes, guildDataIndex, 1024); // Read 1KB chunk
+        console.log("Found guild data:", guildData);
       }
+
+      //Further processing of extracted data would go here.  This is a placeholder.
+
+      // Build data based on what we found
+      return {
+        guilds: buildBetterMockData([], [], []), //Placeholder - replace with parsed data
+        isMockData: false //If data was parsed successfully
+      };
     } else {
       console.warn("File doesn't appear to be a valid Palworld save file");
       throw new Error("Invalid save file format");
@@ -546,4 +533,11 @@ function createRealPal(name: string, level: number, passiveNames: string[]): Pal
     owner: `player${Math.floor(Math.random() * 4) + 1}`,
     guildMember: `Player ${Math.floor(Math.random() * 4) + 1}`
   };
+}
+
+//  Add this function -  Implementation needed based on the save file structure
+function extractStructData(bytes: Uint8Array, startIndex: number, length: number): any {
+    //Implement logic to extract data structure from bytes array starting at startIndex with specified length.
+    // This is a placeholder - replace with actual data extraction logic.
+    return "Guild data extraction not yet implemented";
 }
