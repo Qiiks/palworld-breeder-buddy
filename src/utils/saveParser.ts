@@ -1,3 +1,4 @@
+
 import { SaveFileData, GuildData, Pal, Passive, GuildMember } from "@/types/pal";
 import { PASSIVE_DEFINITIONS, PAL_DEFINITIONS } from "./palConstants";
 
@@ -21,32 +22,54 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
   try {
     console.log("Starting to parse save file:", file.name, "Size:", file.size);
     const buffer = await readFileAsArrayBuffer(file);
-    const dataView = new DataView(buffer);
     
-    // Check for valid file format - using more relaxed validation
-    // Even if validation fails, we'll attempt a partial parse with fallback
-    const isValidSaveFormat = checkFileFormat(dataView);
+    // First pass: try to find UE4 GVAS signature
+    const hasUE4Signature = findUE4Signature(buffer);
+    console.log("UE4 GVAS signature found:", hasUE4Signature);
     
-    if (!isValidSaveFormat) {
-      console.warn("File doesn't match standard Palworld format signature. Attempting relaxed parsing...");
-      // We'll continue with parsing but note that it might not be fully accurate
+    // Search for key patterns in the binary data
+    const hasGuildData = searchForPattern(buffer, "Guild");
+    const hasPalData = searchForPattern(buffer, "PalSaveData");
+    const hasPlayerData = searchForPattern(buffer, "PlayerSave");
+    
+    console.log("Found patterns - Guild:", hasGuildData, "Pal:", hasPalData, "Player:", hasPlayerData);
+    
+    if (hasUE4Signature || hasGuildData || hasPalData || hasPlayerData) {
+      // At this point we assume it's a valid save file, but we may not be able to fully parse it
+      console.log("File appears to be a valid Palworld save file");
+      
+      try {
+        // Extract guild names if possible
+        const guildNames = extractGuildNames(buffer);
+        console.log("Extracted guild names:", guildNames);
+        
+        // Extract player names if possible
+        const playerNames = extractPlayerNames(buffer);
+        console.log("Extracted player names:", playerNames);
+        
+        // Extract Pal names if possible
+        const palNames = extractPalNames(buffer);
+        console.log("Extracted Pal names:", palNames);
+        
+        // Build a more accurate mock dataset based on what we found
+        return {
+          guilds: buildBetterMockData(guildNames, playerNames, palNames),
+          isMockData: true
+        };
+      } catch (innerError) {
+        console.error("Error during detailed parsing:", innerError);
+        return {
+          guilds: createEnhancedMockGuildData(),
+          isMockData: true
+        };
+      }
+    } else {
+      console.warn("File doesn't appear to be a valid Palworld save file");
+      return {
+        guilds: createEnhancedMockGuildData(),
+        isMockData: true
+      };
     }
-    
-    // Attempt to parse the binary structure with more relaxed rules
-    // Fallback to enhanced mock data if parsing fails
-    let parsedData;
-    try {
-      parsedData = parseGuildsFromBinary(dataView, buffer);
-      console.log("Successfully parsed guild data");
-    } catch (parseError) {
-      console.warn("Error during binary parsing:", parseError);
-      console.log("Falling back to enhanced mock data");
-      parsedData = createEnhancedMockGuildData();
-    }
-    
-    return {
-      guilds: parsedData
-    };
   } catch (error) {
     console.error("Error parsing save file:", error);
     // Instead of completely failing, return mock data with an indication that it's mock
@@ -58,104 +81,246 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
 }
 
 /**
- * Check if file has a valid format (more relaxed validation)
+ * Find UE4 GVAS signature (header of the save file)
  */
-function checkFileFormat(dataView: DataView): boolean {
-  try {
-    // Check minimum file size
-    if (dataView.byteLength < 16) {
-      console.error("File too small to be a valid Palworld save");
-      return false;
-    }
-    
-    // Try multiple approaches to validate the file format
-    
-    // 1. Look for common strings that should be in Palworld save files
-    const commonStrings = ["SaveGame", "Level", "Palworld", "PalWorldSettings", 
-                          "Guild", "Character", "Player", "Pal"];
-                          
-    for (const str of commonStrings) {
-      if (searchForStringInBinary(dataView, str)) {
-        console.log(`Found identifier string "${str}" in file`);
-        return true;
-      }
-    }
-    
-    // 2. Check file size - Palworld save files are typically quite large
-    if (dataView.byteLength > 1000000) { // Over 1MB is likely a save file
-      console.log("File size suggests it may be a save file");
+function findUE4Signature(buffer: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(buffer);
+  
+  // UE4 save games typically start with "GVAS"
+  if (bytes.length > 4) {
+    const header = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    if (header === "GVAS") {
       return true;
     }
-    
-    console.warn("Could not find any Palworld identifiers in the file");
-    return false;
-  } catch (error) {
-    console.error("Error validating file format:", error);
-    return false;
   }
+  
+  // Secondary check for other UE4 format identifiers
+  return searchForPattern(buffer, "GVAS") || 
+         searchForPattern(buffer, "UE4SaveGame") || 
+         searchForPattern(buffer, "SaveGame");
 }
 
 /**
- * Search for ASCII string in binary data
+ * Search for a text pattern in binary data
  */
-function searchForStringInBinary(dataView: DataView, searchString: string): boolean {
-  const bytes = new Uint8Array(dataView.buffer);
-  const searchBytes = new TextEncoder().encode(searchString);
+function searchForPattern(buffer: ArrayBuffer, pattern: string): boolean {
+  const bytes = new Uint8Array(buffer);
+  const patternBytes = new TextEncoder().encode(pattern);
   
-  outer:
-  for (let i = 0; i <= bytes.length - searchBytes.length; i++) {
-    for (let j = 0; j < searchBytes.length; j++) {
-      if (bytes[i + j] !== searchBytes[j]) {
-        continue outer;
+  // Search for the pattern in the binary data
+  for (let i = 0; i < bytes.length - patternBytes.length; i++) {
+    let found = true;
+    for (let j = 0; j < patternBytes.length; j++) {
+      if (bytes[i + j] !== patternBytes[j]) {
+        found = false;
+        break;
       }
     }
-    return true;
+    if (found) {
+      return true;
+    }
   }
   
   return false;
 }
 
 /**
- * Read a Uint64 from DataView (since JS doesn't natively support Uint64)
+ * Extract guild names from binary data
  */
-function readUint64(dataView: DataView, offset: number): bigint {
-  const low = dataView.getUint32(offset, true);
-  const high = dataView.getUint32(offset + 4, true);
-  return BigInt(high) * BigInt(0x100000000) + BigInt(low);
+function extractGuildNames(buffer: ArrayBuffer): string[] {
+  const commonGuildPrefixes = ["Guild_", "Team_", "Group_", "Tribe_"];
+  const extractedNames: string[] = [];
+  
+  for (const prefix of commonGuildPrefixes) {
+    const indices = findPatternIndices(buffer, prefix);
+    for (const index of indices) {
+      const possibleName = extractStringFromIndex(buffer, index, 32);
+      if (possibleName && possibleName.length > prefix.length) {
+        extractedNames.push(possibleName.replace(prefix, ""));
+      }
+    }
+  }
+  
+  // If no guild names with prefixes found, try to find words that might be guild names
+  if (extractedNames.length === 0) {
+    const possibleGuildWords = ["Guild", "Team", "Group", "Tribe", "Clan", "Squad", "Party"];
+    for (const word of possibleGuildWords) {
+      const indices = findPatternIndices(buffer, word);
+      for (const index of indices) {
+        // Extract a string following the guild word
+        const afterWord = extractStringFromIndex(buffer, index + word.length, 24);
+        if (afterWord && isValidName(afterWord)) {
+          extractedNames.push(`${word} ${afterWord}`.trim());
+        }
+      }
+    }
+  }
+  
+  // Remove duplicates and limit to 3
+  return [...new Set(extractedNames)].slice(0, 3);
 }
 
 /**
- * Read string from DataView
+ * Extract player names from binary data
  */
-function readString(dataView: DataView, offset: number, maxLength: number = 1024): { value: string, newOffset: number } {
-  // First 4 bytes represent string length including null terminator
-  const length = dataView.getInt32(offset, true);
-  offset += 4;
+function extractPlayerNames(buffer: ArrayBuffer): string[] {
+  const extractedNames: string[] = [];
+  const commonPlayerPrefixes = ["Player_", "Character_", "User_"];
   
-  if (length <= 0 || length > maxLength) {
-    return { value: "", newOffset: offset };
-  }
-  
-  // Check if string is UTF-16 (Unreal Engine often uses UTF-16)
-  const isWideChar = dataView.getUint8(offset) !== 0 && dataView.getUint8(offset + 1) === 0;
-  
-  let value = "";
-  if (isWideChar) {
-    // UTF-16 string
-    for (let i = 0; i < length - 1; i += 2) {
-      const charCode = dataView.getUint16(offset + i, true);
-      if (charCode === 0) break; // Null terminator
-      value += String.fromCharCode(charCode);
+  for (const prefix of commonPlayerPrefixes) {
+    const indices = findPatternIndices(buffer, prefix);
+    for (const index of indices) {
+      const possibleName = extractStringFromIndex(buffer, index, 32);
+      if (possibleName && possibleName.length > prefix.length) {
+        const name = possibleName.replace(prefix, "");
+        if (isValidName(name)) {
+          extractedNames.push(name);
+        }
+      }
     }
-    offset += length * 2;
-  } else {
-    // UTF-8 string
-    const stringBytes = new Uint8Array(dataView.buffer, offset, length - 1);
-    value = new TextDecoder("utf-8").decode(stringBytes);
-    offset += length;
   }
   
-  return { value, newOffset: offset };
+  // De-duplicate and limit
+  return [...new Set(extractedNames)].slice(0, 10);
+}
+
+/**
+ * Extract Pal names from binary data
+ */
+function extractPalNames(buffer: ArrayBuffer): string[] {
+  const extractedPals: string[] = [];
+  const bytes = new Uint8Array(buffer);
+  
+  // Check for known Pal names in the save file
+  for (const palName of Object.values(PAL_DEFINITIONS)) {
+    if (searchForPattern(buffer, palName)) {
+      extractedPals.push(palName);
+    }
+  }
+  
+  // If few pals were found directly, try another approach with Pal prefixes
+  if (extractedPals.length < 5) {
+    const commonPalPrefixes = ["Pal_", "Character_", "Monster_"];
+    for (const prefix of commonPalPrefixes) {
+      const indices = findPatternIndices(buffer, prefix);
+      for (const index of indices) {
+        const possibleName = extractStringFromIndex(buffer, index, 32);
+        if (possibleName && possibleName.length > prefix.length) {
+          const name = possibleName.replace(prefix, "");
+          // Check if this extracted name matches any known pal
+          const matchedPal = Object.values(PAL_DEFINITIONS).find(
+            pal => pal.toLowerCase() === name.toLowerCase()
+          );
+          if (matchedPal) {
+            extractedPals.push(matchedPal);
+          }
+        }
+      }
+    }
+  }
+  
+  // Ensure we have at least some pals for the mock data
+  if (extractedPals.length < 5) {
+    // Add some common starting pals if none were found
+    const commonStarterPals = ["Lamball", "Foxparks", "Cattiva", "Chikipi", "Pengullet"];
+    for (const pal of commonStarterPals) {
+      if (!extractedPals.includes(pal)) {
+        extractedPals.push(pal);
+      }
+    }
+  }
+  
+  // De-duplicate and return
+  return [...new Set(extractedPals)];
+}
+
+/**
+ * Find all indices of a pattern in binary data
+ */
+function findPatternIndices(buffer: ArrayBuffer, pattern: string): number[] {
+  const bytes = new Uint8Array(buffer);
+  const patternBytes = new TextEncoder().encode(pattern);
+  const indices: number[] = [];
+  
+  for (let i = 0; i < bytes.length - patternBytes.length; i++) {
+    let found = true;
+    for (let j = 0; j < patternBytes.length; j++) {
+      if (bytes[i + j] !== patternBytes[j]) {
+        found = false;
+        break;
+      }
+    }
+    if (found) {
+      indices.push(i);
+    }
+  }
+  
+  return indices;
+}
+
+/**
+ * Extract a null-terminated or length-limited string from a specific index
+ */
+function extractStringFromIndex(buffer: ArrayBuffer, startIndex: number, maxLength: number = 32): string | null {
+  const bytes = new Uint8Array(buffer);
+  if (startIndex >= bytes.length) {
+    return null;
+  }
+  
+  let result = "";
+  for (let i = 0; i < maxLength && startIndex + i < bytes.length; i++) {
+    const byte = bytes[startIndex + i];
+    
+    // Stop at null terminator or non-printable character
+    if (byte === 0 || (byte < 32 && byte !== 10 && byte !== 13)) {
+      break;
+    }
+    
+    // Only include ASCII printable characters
+    if ((byte >= 32 && byte <= 126) || byte === 10 || byte === 13) {
+      result += String.fromCharCode(byte);
+    }
+  }
+  
+  // Clean up the string
+  result = result.trim();
+  if (result.length === 0) {
+    return null;
+  }
+  
+  return result;
+}
+
+/**
+ * Check if a string is a valid name (not garbage data)
+ */
+function isValidName(name: string): boolean {
+  // Remove common non-name characters
+  name = name.replace(/[0-9_\-\.]/g, "").trim();
+  
+  // Name should have some length after cleanup
+  if (name.length < 2) {
+    return false;
+  }
+  
+  // Name shouldn't be all uppercase or all lowercase (likely a constant)
+  if (name === name.toUpperCase() || name === name.toLowerCase()) {
+    // Allow exceptions for common names
+    if (["admin", "server", "host", "player"].includes(name.toLowerCase())) {
+      return true;
+    }
+    return false;
+  }
+  
+  // Name shouldn't contain typical garbage
+  const garbagePatterns = ["null", "undefined", "NaN", "true", "false", "error"];
+  for (const pattern of garbagePatterns) {
+    if (name.toLowerCase().includes(pattern)) {
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
@@ -171,191 +336,76 @@ function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
 }
 
 /**
- * Parse all guild data from binary
+ * Build better mock data based on what we extracted from the save file
  */
-function parseGuildsFromBinary(dataView: DataView, buffer: ArrayBuffer): GuildData[] {
-  console.log("Attempting to parse guild data from binary...");
+function buildBetterMockData(guildNames: string[], playerNames: string[], palNames: string[]): GuildData[] {
+  console.log("Building enhanced mock data with extracted names");
   
-  try {
-    // More robust implementation based on PalworldSaveTools
-    
-    // Search for potential guild data sections
-    const guildDataFound = analyzeFileStructure(dataView, buffer);
-    
-    if (guildDataFound) {
-      console.log("Found potential guild data structures");
+  // If no guild names were found, use default names
+  if (guildNames.length === 0) {
+    guildNames = ["Palworld Explorers", "Pal Tamers Guild"];
+  }
+  
+  // If no player names were found, use default names
+  if (playerNames.length === 0) {
+    playerNames = ["Player1", "Player2", "Player3"];
+  }
+  
+  // Create guilds with the extracted names
+  const guilds: GuildData[] = guildNames.map((guildName, index) => {
+    // Select a subset of players for this guild
+    const guildPlayers = playerNames
+      .slice(index * 2, index * 2 + 3)
+      .filter(name => name);
       
-      // Attempt to extract real guild names if possible
-      const possibleGuildNames = extractPossibleGuildNames(dataView);
+    if (guildPlayers.length === 0) {
+      guildPlayers.push(`Player${index + 1}`);
+    }
+    
+    // Create guild members
+    const members: GuildMember[] = guildPlayers.map((playerName, playerIndex) => {
+      // Create pals for this player
+      const playerPals: Pal[] = [];
+      const numPals = 2 + Math.floor(Math.random() * 3); // 2-4 pals per player
       
-      if (possibleGuildNames.length > 0) {
-        console.log("Found possible guild names:", possibleGuildNames);
-        return createEnhancedMockGuildDataWithNames(possibleGuildNames);
-      }
-      
-      // If no guild names found, return enhanced mock data
-      return createEnhancedMockGuildData();
-    } else {
-      console.log("Could not locate guild data structures, using mock data");
-      return createMockGuildData();
-    }
-  } catch (error) {
-    console.error("Error parsing guild data:", error);
-    // Fallback to mock data
-    return createMockGuildData();
-  }
-}
-
-/**
- * Analyze overall file structure to identify key sections
- */
-function analyzeFileStructure(dataView: DataView, buffer: ArrayBuffer): boolean {
-  try {
-    // This is a simplified approach to identify file structure
-    // In a full implementation, we'd follow the exact Unreal Engine serialization format
-    
-    // Check for UE4 Save Game format markers
-    const isUE4Format = searchForStringInBinary(dataView, "GVAS");
-    if (isUE4Format) {
-      console.log("Identified UE4 Save Game format (GVAS marker)");
-      return true;
-    }
-    
-    // Check for PAK file format markers (another common UE4 format)
-    const isPakFormat = searchForStringInBinary(dataView, "PakFile");
-    if (isPakFormat) {
-      console.log("Identified UE4 PAK file format");
-      return true;
-    }
-    
-    // Look for JSON structures that might indicate save data
-    const hasJsonData = searchForStringInBinary(dataView, "{\"") || 
-                        searchForStringInBinary(dataView, "\"name\"") ||
-                        searchForStringInBinary(dataView, "\"type\"");
-                        
-    if (hasJsonData) {
-      console.log("Found potential JSON data structures");
-      return true;
-    }
-    
-    // Look for potential guild name strings and pal names
-    const hasGuildStrings = searchForGuildStrings(dataView);
-    const hasPalNames = searchForPalNames(dataView);
-    
-    return hasGuildStrings || hasPalNames;
-  } catch (error) {
-    console.error("Error analyzing file structure:", error);
-    return false;
-  }
-}
-
-/**
- * Search for strings that might indicate guild data
- */
-function searchForGuildStrings(dataView: DataView): boolean {
-  const guildKeywords = [
-    "Guild", "Clan", "Group", "Team", "Party", "Alliance", "Tribe",
-    "Base", "BaseCamp", "Camp", "Palbox"
-  ];
-  
-  for (const keyword of guildKeywords) {
-    if (searchForStringInBinary(dataView, keyword)) {
-      console.log(`Found guild keyword "${keyword}"`);
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-/**
- * Search for pal names in the binary data
- */
-function searchForPalNames(dataView: DataView): boolean {
-  // Check for actual pal names from our definitions
-  for (const palName of Object.values(PAL_DEFINITIONS)) {
-    if (searchForStringInBinary(dataView, palName)) {
-      console.log(`Found pal name "${palName}"`);
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-/**
- * Attempt to extract potential guild names from the save file
- */
-function extractPossibleGuildNames(dataView: DataView): string[] {
-  const possibleNames: string[] = [];
-  const bytes = new Uint8Array(dataView.buffer);
-  
-  // Look for ASCII strings that might be guild names
-  // This is a simplified approach - real implementation would use proper binary format parsing
-  let currentString = "";
-  let inString = false;
-  const minNameLength = 3;
-  const maxNameLength = 32;
-  
-  for (let i = 0; i < bytes.length; i++) {
-    const byte = bytes[i];
-    
-    // Check for ASCII alphabetic characters
-    if ((byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte === 32) {
-      // Letter or space character
-      if (!inString) {
-        inString = true;
-        currentString = "";
-      }
-      currentString += String.fromCharCode(byte);
-    } else {
-      if (inString) {
-        inString = false;
-        if (currentString.length >= minNameLength && 
-            currentString.length <= maxNameLength &&
-            /^[A-Za-z\s]+$/.test(currentString)) {
-          possibleNames.push(currentString.trim());
+      for (let i = 0; i < numPals; i++) {
+        // Use extracted pal names, or fall back to random ones if we don't have enough
+        let palName: string;
+        if (i < palNames.length) {
+          palName = palNames[i % palNames.length];
+        } else {
+          const allPalNames = Object.values(PAL_DEFINITIONS);
+          palName = allPalNames[Math.floor(Math.random() * allPalNames.length)];
         }
+        
+        // Create passives for this pal
+        const passives = createRandomPassives(1 + Math.floor(Math.random() * 2)); // 1-2 passives
+        
+        // Add the pal
+        playerPals.push({
+          id: `pal-${playerIndex}-${i}`,
+          name: palName,
+          level: 5 + Math.floor(Math.random() * 30), // Level 5-34
+          passives,
+          owner: `player-${playerIndex}`,
+          guildMember: playerName
+        });
       }
-    }
+      
+      return {
+        id: `player-${playerIndex}`,
+        name: playerName,
+        pals: playerPals
+      };
+    });
     
-    // Reset if string gets too long
-    if (currentString.length > maxNameLength) {
-      inString = false;
-      currentString = "";
-    }
-  }
-  
-  // Filter out common non-guild names and keep only unique values
-  const filteredNames = [...new Set(possibleNames)].filter(name => {
-    // Filter out names that are probably not guild names
-    const lowercaseName = name.toLowerCase();
-    return !lowercaseName.includes("null") && 
-           !lowercaseName.includes("undefined") &&
-           !lowercaseName.includes("error") &&
-           !lowercaseName.includes("false") &&
-           !lowercaseName.includes("true");
+    return {
+      guildName,
+      members
+    };
   });
   
-  return filteredNames.slice(0, 5); // Return max 5 potential guild names
-}
-
-/**
- * Create realistic mock guild data based on existing pal definitions
- * but with custom guild names
- */
-function createEnhancedMockGuildDataWithNames(guildNames: string[]): GuildData[] {
-  console.log("Creating enhanced mock guild data with extracted guild names");
-  
-  const mockData = createEnhancedMockGuildData();
-  
-  // Use the real guild names we found, but keep the mock data structure
-  return mockData.map((guild, index) => {
-    if (index < guildNames.length) {
-      return { ...guild, guildName: guildNames[index] };
-    }
-    return guild;
-  });
+  return guilds;
 }
 
 /**
@@ -417,24 +467,36 @@ function createEnhancedMockGuildData(): GuildData[] {
 }
 
 /**
- * Create generic mock guild data
+ * Create random passives for a pal
  */
-function createMockGuildData(): GuildData[] {
-  return [
-    {
-      guildName: "Test Guild",
-      members: [
-        {
-          id: "player1",
-          name: "TestPlayer",
-          pals: [
-            createRealPal("Lamball", 5, ["Work Speedster"]),
-            createRealPal("Cattiva", 7, ["Positive Thinker"]),
-          ],
-        }
-      ]
-    }
-  ];
+function createRandomPassives(count: number): Passive[] {
+  const allPassives = Object.entries(PASSIVE_DEFINITIONS);
+  const passives: Passive[] = [];
+  
+  // Create specified number of unique passives
+  for (let i = 0; i < count; i++) {
+    // Get a random passive that's not already added
+    let attempts = 0;
+    let passiveEntry;
+    do {
+      const randomIndex = Math.floor(Math.random() * allPassives.length);
+      passiveEntry = allPassives[randomIndex];
+      attempts++;
+    } while (
+      passives.some(p => p.name === passiveEntry[1].name) && 
+      attempts < 10
+    );
+    
+    // Add the passive
+    passives.push({
+      id: `p${i}`,
+      name: passiveEntry[1].name || "Unknown Ability",
+      description: passiveEntry[1].description || "Unknown effect",
+      rarity: (passiveEntry[1].rarity || "common") as "common" | "uncommon" | "rare" | "epic" | "legendary"
+    });
+  }
+  
+  return passives;
 }
 
 /**
