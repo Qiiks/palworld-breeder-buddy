@@ -22,22 +22,52 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
     const bytes = new Uint8Array(buffer);
     const dataView = new DataView(buffer);
 
-    // Look for GVAS signature and header
-    let hasValidHeader = false;
-    for (let i = 0; i < Math.min(bytes.length, 1024); i++) {
-      if (bytes[i] === 0x47 && // G
-          bytes[i + 1] === 0x56 && // V
-          bytes[i + 2] === 0x41 && // A
-          bytes[i + 3] === 0x53) { // S
-        hasValidHeader = true;
-        console.log("Found GVAS header at offset:", i);
+    // Check for GVAS header anywhere in the first 4KB
+    const searchSpace = Math.min(bytes.length, 4096);
+    let gvasOffset = -1;
+    
+    for (let i = 0; i < searchSpace - 4; i++) {
+      const byte1 = bytes[i];
+      const byte2 = bytes[i + 1];
+      const byte3 = bytes[i + 2];
+      const byte4 = bytes[i + 3];
+      
+      // Check for "GVAS" ASCII or potential binary markers
+      if ((byte1 === 0x47 && byte2 === 0x56 && byte3 === 0x41 && byte4 === 0x53) || // ASCII "GVAS"
+          (byte1 === 0x53 && byte2 === 0x41 && byte3 === 0x56 && byte4 === 0x47)) { // Reversed "GVAS"
+        gvasOffset = i;
+        console.log("Found GVAS marker at offset:", i);
         break;
       }
     }
 
-    if (!hasValidHeader) {
-      console.warn("No valid GVAS header found");
+    if (gvasOffset === -1) {
+      // Try alternative binary signatures
+      for (let i = 0; i < searchSpace - 8; i++) {
+        const value = dataView.getUint32(i, true); // Try little-endian
+        if (value === PALWORLD_SAVE_MAGIC || 
+            value === PAL_SAVE_TYPE_GUILD || 
+            value === PAL_SAVE_TYPE_PLAYER || 
+            value === PAL_SAVE_TYPE_PAL) {
+          gvasOffset = i;
+          console.log("Found Palworld binary signature at offset:", i);
+          break;
+        }
+      }
+    }
+
+    if (gvasOffset === -1) {
+      console.warn("No valid Palworld save signature found");
       throw new Error("Invalid save file format");
+    }
+
+    // Start parsing from the found offset
+    const saveData = parsePalworldSaveData(bytes.slice(gvasOffset));
+    if (saveData && Object.keys(saveData).length > 0) {
+      return {
+        guilds: buildDataFromExtracted(saveData),
+        isMockData: false
+      };
     }
 
     // Search for key game data structures
@@ -675,3 +705,35 @@ function buildDataFromExtracted(extractedData: any): GuildData[] {
 
   return guilds;
 }
+<insert>
+function parsePalworldSaveData(data: Uint8Array): any {
+  try {
+    const view = new DataView(data.buffer);
+    const saveData: any = {
+      guilds: [],
+      players: [],
+      pals: []
+    };
+
+    // Scan for guild data markers
+    for (let i = 0; i < data.length - 8; i++) {
+      const value = view.getUint32(i, true);
+      if (value === PAL_SAVE_TYPE_GUILD) {
+        const guildData = parseGuildSection(data.slice(i + 4));
+        if (guildData) saveData.guilds.push(guildData);
+      } else if (value === PAL_SAVE_TYPE_PLAYER) {
+        const playerData = parsePlayerSection(data.slice(i + 4));
+        if (playerData) saveData.players.push(playerData);
+      } else if (value === PAL_SAVE_TYPE_PAL) {
+        const palData = parsePalSection(data.slice(i + 4));
+        if (palData) saveData.pals.push(palData);
+      }
+    }
+
+    return saveData;
+  } catch (error) {
+    console.error("Error parsing Palworld save data:", error);
+    return null;
+  }
+}
+</insert>
