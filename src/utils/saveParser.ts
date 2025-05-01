@@ -81,9 +81,12 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
 
     console.warn("No valid game data structures found");
     throw new Error("No valid game data found");
-    }
   } catch (error) {
     console.error("Error parsing save file:", error);
+    return {
+      guilds: createEnhancedMockGuildData(),
+      isMockData: true
+    };
     return {
       guilds: createEnhancedMockGuildData(),
       isMockData: true
