@@ -1,4 +1,3 @@
-
 import { SaveFileData, GuildData, Pal, Passive, GuildMember } from "@/types/pal";
 import { PASSIVE_DEFINITIONS, PAL_DEFINITIONS } from "./palConstants";
 
@@ -15,46 +14,43 @@ const PAL_SAVE_TYPE_PAL = 0x0000000012B55262;    // Pal data type identifier
 
 /**
  * Parse binary data from a Level.sav file
- * @param file File object containing the Level.sav data
- * @returns Parsed SaveFileData with guilds, members, and pals
  */
 export async function parseSaveFile(file: File): Promise<SaveFileData> {
   try {
     console.log("Starting to parse save file:", file.name, "Size:", file.size);
     const buffer = await readFileAsArrayBuffer(file);
-    
+
     // First pass: try to find UE4 GVAS signature
     const hasUE4Signature = findUE4Signature(buffer);
     console.log("UE4 GVAS signature found:", hasUE4Signature);
-    
+
     // Search for key patterns in the binary data
     const hasGuildData = searchForPattern(buffer, "Guild");
     const hasPalData = searchForPattern(buffer, "PalSaveData");
     const hasPlayerData = searchForPattern(buffer, "PlayerSave");
-    
+
     console.log("Found patterns - Guild:", hasGuildData, "Pal:", hasPalData, "Player:", hasPlayerData);
-    
+
     if (hasUE4Signature || hasGuildData || hasPalData || hasPlayerData) {
-      // At this point we assume it's a valid save file, but we may not be able to fully parse it
       console.log("File appears to be a valid Palworld save file");
-      
+
       try {
         // Extract guild names if possible
         const guildNames = extractGuildNames(buffer);
         console.log("Extracted guild names:", guildNames);
-        
+
         // Extract player names if possible
         const playerNames = extractPlayerNames(buffer);
         console.log("Extracted player names:", playerNames);
-        
+
         // Extract Pal names if possible
         const palNames = extractPalNames(buffer);
         console.log("Extracted Pal names:", palNames);
-        
-        // Build a more accurate mock dataset based on what we found
+
+        // Build data based on what we found
         return {
           guilds: buildBetterMockData(guildNames, playerNames, palNames),
-          isMockData: true
+          isMockData: true // Still mark as mock since we can't fully parse yet
         };
       } catch (innerError) {
         console.error("Error during detailed parsing:", innerError);
@@ -65,14 +61,10 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
       }
     } else {
       console.warn("File doesn't appear to be a valid Palworld save file");
-      return {
-        guilds: createEnhancedMockGuildData(),
-        isMockData: true
-      };
+      throw new Error("Invalid save file format");
     }
   } catch (error) {
     console.error("Error parsing save file:", error);
-    // Instead of completely failing, return mock data with an indication that it's mock
     return {
       guilds: createEnhancedMockGuildData(),
       isMockData: true
@@ -85,7 +77,7 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
  */
 function findUE4Signature(buffer: ArrayBuffer): boolean {
   const bytes = new Uint8Array(buffer);
-  
+
   // UE4 save games typically start with "GVAS"
   if (bytes.length > 4) {
     const header = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
@@ -93,7 +85,7 @@ function findUE4Signature(buffer: ArrayBuffer): boolean {
       return true;
     }
   }
-  
+
   // Secondary check for other UE4 format identifiers
   return searchForPattern(buffer, "GVAS") || 
          searchForPattern(buffer, "UE4SaveGame") || 
