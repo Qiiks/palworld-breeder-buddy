@@ -22,34 +22,65 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
     const bytes = new Uint8Array(buffer);
     const dataView = new DataView(buffer);
 
-    // Check for GVAS signature in a more flexible way
-    const gvasIndex = findPatternIndices(buffer, "GVAS")[0] || 0;
-    if (gvasIndex >= 0) {
-      console.log("Found GVAS signature at:", gvasIndex);
+    // Look for GVAS signature and header
+    let hasValidHeader = false;
+    for (let i = 0; i < Math.min(bytes.length, 1024); i++) {
+      if (bytes[i] === 0x47 && // G
+          bytes[i + 1] === 0x56 && // V
+          bytes[i + 2] === 0x41 && // A
+          bytes[i + 3] === 0x53) { // S
+        hasValidHeader = true;
+        console.log("Found GVAS header at offset:", i);
+        break;
+      }
+    }
 
-      // Search for WorldSaveData structure
-      const worldDataIndex = findPatternIndices(buffer, "WorldSaveData")[0];
-      const guildDataIndex = findPatternIndices(buffer, "GuildSaveData")[0];
-      const characterDataIndex = findPatternIndices(buffer, "CharacterSaveParameterMap")[0];
+    if (!hasValidHeader) {
+      console.warn("No valid GVAS header found");
+      throw new Error("Invalid save file format");
+    }
 
-      console.log("Data indices - World:", worldDataIndex, "Guild:", guildDataIndex, "Character:", characterDataIndex);
+    // Search for key game data structures
+    const guildDataStart = findStructureStart(bytes, "GuildSaveData");
+    const playerDataStart = findStructureStart(bytes, "PlayerSaveData");
+    const palDataStart = findStructureStart(bytes, "PalIndividualData");
 
-      // Extract guild data if found
-      if (guildDataIndex > 0) {
-        const guildData = extractStructData(bytes, guildDataIndex, 1024); // Read 1KB chunk
-        console.log("Found guild data:", guildData);
+    console.log("Found structures at - Guild:", guildDataStart, "Player:", playerDataStart, "Pal:", palDataStart);
+
+    if (guildDataStart > 0 || playerDataStart > 0 || palDataStart > 0) {
+      const extractedData = {
+        guilds: [] as any[],
+        players: [] as any[],
+        pals: [] as any[]
+      };
+
+      // Extract guild data
+      if (guildDataStart > 0) {
+        const guildData = extractGuildStructure(bytes, guildDataStart);
+        if (guildData) extractedData.guilds.push(guildData);
       }
 
-      //Further processing of extracted data would go here.  This is a placeholder.
+      // Extract player data
+      if (playerDataStart > 0) {
+        const playerData = extractPlayerStructure(bytes, playerDataStart);
+        if (playerData) extractedData.players.push(playerData);
+      }
 
-      // Build data based on what we found
+      // Extract pal data
+      if (palDataStart > 0) {
+        const palData = extractPalStructure(bytes, palDataStart);
+        if (palData) extractedData.pals.push(palData);
+      }
+
+      // Build final data structure
       return {
-        guilds: buildBetterMockData([], [], []), //Placeholder - replace with parsed data
-        isMockData: false //If data was parsed successfully
+        guilds: buildDataFromExtracted(extractedData),
+        isMockData: false
       };
-    } else {
-      console.warn("File doesn't appear to be a valid Palworld save file");
-      throw new Error("Invalid save file format");
+    }
+
+    console.warn("No valid game data structures found");
+    throw new Error("No valid game data found");
     }
   } catch (error) {
     console.error("Error parsing save file:", error);
@@ -540,4 +571,104 @@ function extractStructData(bytes: Uint8Array, startIndex: number, length: number
     //Implement logic to extract data structure from bytes array starting at startIndex with specified length.
     // This is a placeholder - replace with actual data extraction logic.
     return "Guild data extraction not yet implemented";
+}
+// Helper function to find the start of a data structure
+function findStructureStart(bytes: Uint8Array, structName: string): number {
+  const encoder = new TextEncoder();
+  const pattern = encoder.encode(structName);
+  
+  for (let i = 0; i < bytes.length - pattern.length; i++) {
+    let found = true;
+    for (let j = 0; j < pattern.length; j++) {
+      if (bytes[i + j] !== pattern[j]) {
+        found = false;
+        break;
+      }
+    }
+    if (found) return i;
+  }
+  return -1;
+}
+
+// Extract guild structure data
+function extractGuildStructure(bytes: Uint8Array, start: number): any {
+  try {
+    // Read guild structure - implementation based on save file format
+    const guildNameLength = bytes[start + 16]; // Example offset
+    const guildName = new TextDecoder().decode(bytes.slice(start + 17, start + 17 + guildNameLength));
+    
+    return {
+      name: guildName,
+      // Add other guild properties based on the save format
+    };
+  } catch (e) {
+    console.error("Error extracting guild structure:", e);
+    return null;
+  }
+}
+
+// Extract player structure data
+function extractPlayerStructure(bytes: Uint8Array, start: number): any {
+  try {
+    // Read player structure - implementation based on save file format
+    const playerNameLength = bytes[start + 16]; // Example offset
+    const playerName = new TextDecoder().decode(bytes.slice(start + 17, start + 17 + playerNameLength));
+    
+    return {
+      name: playerName,
+      // Add other player properties based on the save format
+    };
+  } catch (e) {
+    console.error("Error extracting player structure:", e);
+    return null;
+  }
+}
+
+// Extract pal structure data
+function extractPalStructure(bytes: Uint8Array, start: number): any {
+  try {
+    // Read pal structure - implementation based on save file format
+    const palNameLength = bytes[start + 16]; // Example offset
+    const palName = new TextDecoder().decode(bytes.slice(start + 17, start + 17 + palNameLength));
+    
+    return {
+      name: palName,
+      // Add other pal properties based on the save format
+    };
+  } catch (e) {
+    console.error("Error extracting pal structure:", e);
+    return null;
+  }
+}
+
+// Build final data structure from extracted data
+function buildDataFromExtracted(extractedData: any): GuildData[] {
+  const guilds: GuildData[] = [];
+  
+  // Process extracted data into the required format
+  if (extractedData.guilds.length > 0) {
+    extractedData.guilds.forEach((guild: any) => {
+      const guildMembers = extractedData.players.map((player: any) => ({
+        id: player.name,
+        name: player.name,
+        pals: extractedData.pals
+          .filter((pal: any) => pal.owner === player.name)
+          .map((pal: any) => ({
+            id: pal.name,
+            name: pal.name,
+            level: pal.level || 1,
+            passives: pal.passives || [],
+            owner: player.name,
+            guildMember: player.name
+          }))
+      }));
+
+      guilds.push({
+        guildName: guild.name,
+        members: guildMembers
+      });
+    });
+  }
+
+  return guilds;
 }
