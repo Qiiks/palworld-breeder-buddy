@@ -342,7 +342,12 @@ export function BreedingCalculator({ guild }: BreedingCalculatorProps) {
                 </p>
                 <Button 
                   className="bg-palaccent hover:bg-palaccent-light"
-                  onClick={() => document.querySelector('[data-value="results"]')?.click()}
+                  onClick={() => {
+                    const resultsTab = document.querySelector('[data-value="results"]') as HTMLButtonElement;
+                    if (resultsTab) {
+                      resultsTab.click();
+                    }
+                  }}
                 >
                   View Results <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
