@@ -19,6 +19,7 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
   try {
     console.log("Starting to parse save file:", file.name, "Size:", file.size);
     const buffer = await readFileAsArrayBuffer(file);
+    const dataView = new DataView(buffer);
 
     // First pass: try to find UE4 GVAS signature
     const hasUE4Signature = findUE4Signature(buffer);
@@ -72,6 +73,19 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
   }
 }
 
+// Helper functions for reading binary data
+function readInt32(view: DataView, offset: number): number {
+  return view.getInt32(offset, true); // true for little-endian
+}
+
+function readString(view: DataView, offset: number): string {
+  const length = readInt32(view, offset);
+  if (length <= 0 || length > 1024) return ''; // Sanity check
+
+  const bytes = new Uint8Array(view.buffer, offset + 4, length - 1); // -1 to skip null terminator
+  return new TextDecoder().decode(bytes);
+}
+
 /**
  * Find UE4 GVAS signature (header of the save file)
  */
@@ -98,7 +112,7 @@ function findUE4Signature(buffer: ArrayBuffer): boolean {
 function searchForPattern(buffer: ArrayBuffer, pattern: string): boolean {
   const bytes = new Uint8Array(buffer);
   const patternBytes = new TextEncoder().encode(pattern);
-  
+
   // Search for the pattern in the binary data
   for (let i = 0; i < bytes.length - patternBytes.length; i++) {
     let found = true;
@@ -112,7 +126,7 @@ function searchForPattern(buffer: ArrayBuffer, pattern: string): boolean {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -122,7 +136,7 @@ function searchForPattern(buffer: ArrayBuffer, pattern: string): boolean {
 function extractGuildNames(buffer: ArrayBuffer): string[] {
   const commonGuildPrefixes = ["Guild_", "Team_", "Group_", "Tribe_"];
   const extractedNames: string[] = [];
-  
+
   for (const prefix of commonGuildPrefixes) {
     const indices = findPatternIndices(buffer, prefix);
     for (const index of indices) {
@@ -132,7 +146,7 @@ function extractGuildNames(buffer: ArrayBuffer): string[] {
       }
     }
   }
-  
+
   // If no guild names with prefixes found, try to find words that might be guild names
   if (extractedNames.length === 0) {
     const possibleGuildWords = ["Guild", "Team", "Group", "Tribe", "Clan", "Squad", "Party"];
@@ -147,7 +161,7 @@ function extractGuildNames(buffer: ArrayBuffer): string[] {
       }
     }
   }
-  
+
   // Remove duplicates and limit to 3
   return [...new Set(extractedNames)].slice(0, 3);
 }
@@ -158,7 +172,7 @@ function extractGuildNames(buffer: ArrayBuffer): string[] {
 function extractPlayerNames(buffer: ArrayBuffer): string[] {
   const extractedNames: string[] = [];
   const commonPlayerPrefixes = ["Player_", "Character_", "User_"];
-  
+
   for (const prefix of commonPlayerPrefixes) {
     const indices = findPatternIndices(buffer, prefix);
     for (const index of indices) {
@@ -171,7 +185,7 @@ function extractPlayerNames(buffer: ArrayBuffer): string[] {
       }
     }
   }
-  
+
   // De-duplicate and limit
   return [...new Set(extractedNames)].slice(0, 10);
 }
@@ -182,14 +196,14 @@ function extractPlayerNames(buffer: ArrayBuffer): string[] {
 function extractPalNames(buffer: ArrayBuffer): string[] {
   const extractedPals: string[] = [];
   const bytes = new Uint8Array(buffer);
-  
+
   // Check for known Pal names in the save file
   for (const palName of Object.values(PAL_DEFINITIONS)) {
     if (searchForPattern(buffer, palName)) {
       extractedPals.push(palName);
     }
   }
-  
+
   // If few pals were found directly, try another approach with Pal prefixes
   if (extractedPals.length < 5) {
     const commonPalPrefixes = ["Pal_", "Character_", "Monster_"];
@@ -210,7 +224,7 @@ function extractPalNames(buffer: ArrayBuffer): string[] {
       }
     }
   }
-  
+
   // Ensure we have at least some pals for the mock data
   if (extractedPals.length < 5) {
     // Add some common starting pals if none were found
@@ -221,7 +235,7 @@ function extractPalNames(buffer: ArrayBuffer): string[] {
       }
     }
   }
-  
+
   // De-duplicate and return
   return [...new Set(extractedPals)];
 }
@@ -233,7 +247,7 @@ function findPatternIndices(buffer: ArrayBuffer, pattern: string): number[] {
   const bytes = new Uint8Array(buffer);
   const patternBytes = new TextEncoder().encode(pattern);
   const indices: number[] = [];
-  
+
   for (let i = 0; i < bytes.length - patternBytes.length; i++) {
     let found = true;
     for (let j = 0; j < patternBytes.length; j++) {
@@ -246,7 +260,7 @@ function findPatternIndices(buffer: ArrayBuffer, pattern: string): number[] {
       indices.push(i);
     }
   }
-  
+
   return indices;
 }
 
@@ -258,28 +272,28 @@ function extractStringFromIndex(buffer: ArrayBuffer, startIndex: number, maxLeng
   if (startIndex >= bytes.length) {
     return null;
   }
-  
+
   let result = "";
   for (let i = 0; i < maxLength && startIndex + i < bytes.length; i++) {
     const byte = bytes[startIndex + i];
-    
+
     // Stop at null terminator or non-printable character
     if (byte === 0 || (byte < 32 && byte !== 10 && byte !== 13)) {
       break;
     }
-    
+
     // Only include ASCII printable characters
     if ((byte >= 32 && byte <= 126) || byte === 10 || byte === 13) {
       result += String.fromCharCode(byte);
     }
   }
-  
+
   // Clean up the string
   result = result.trim();
   if (result.length === 0) {
     return null;
   }
-  
+
   return result;
 }
 
@@ -289,12 +303,12 @@ function extractStringFromIndex(buffer: ArrayBuffer, startIndex: number, maxLeng
 function isValidName(name: string): boolean {
   // Remove common non-name characters
   name = name.replace(/[0-9_\-\.]/g, "").trim();
-  
+
   // Name should have some length after cleanup
   if (name.length < 2) {
     return false;
   }
-  
+
   // Name shouldn't be all uppercase or all lowercase (likely a constant)
   if (name === name.toUpperCase() || name === name.toLowerCase()) {
     // Allow exceptions for common names
@@ -303,7 +317,7 @@ function isValidName(name: string): boolean {
     }
     return false;
   }
-  
+
   // Name shouldn't contain typical garbage
   const garbagePatterns = ["null", "undefined", "NaN", "true", "false", "error"];
   for (const pattern of garbagePatterns) {
@@ -311,7 +325,7 @@ function isValidName(name: string): boolean {
       return false;
     }
   }
-  
+
   return true;
 }
 
@@ -332,34 +346,34 @@ function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
  */
 function buildBetterMockData(guildNames: string[], playerNames: string[], palNames: string[]): GuildData[] {
   console.log("Building enhanced mock data with extracted names");
-  
+
   // If no guild names were found, use default names
   if (guildNames.length === 0) {
     guildNames = ["Palworld Explorers", "Pal Tamers Guild"];
   }
-  
+
   // If no player names were found, use default names
   if (playerNames.length === 0) {
     playerNames = ["Player1", "Player2", "Player3"];
   }
-  
+
   // Create guilds with the extracted names
   const guilds: GuildData[] = guildNames.map((guildName, index) => {
     // Select a subset of players for this guild
     const guildPlayers = playerNames
       .slice(index * 2, index * 2 + 3)
       .filter(name => name);
-      
+
     if (guildPlayers.length === 0) {
       guildPlayers.push(`Player${index + 1}`);
     }
-    
+
     // Create guild members
     const members: GuildMember[] = guildPlayers.map((playerName, playerIndex) => {
       // Create pals for this player
       const playerPals: Pal[] = [];
       const numPals = 2 + Math.floor(Math.random() * 3); // 2-4 pals per player
-      
+
       for (let i = 0; i < numPals; i++) {
         // Use extracted pal names, or fall back to random ones if we don't have enough
         let palName: string;
@@ -369,10 +383,10 @@ function buildBetterMockData(guildNames: string[], playerNames: string[], palNam
           const allPalNames = Object.values(PAL_DEFINITIONS);
           palName = allPalNames[Math.floor(Math.random() * allPalNames.length)];
         }
-        
+
         // Create passives for this pal
         const passives = createRandomPassives(1 + Math.floor(Math.random() * 2)); // 1-2 passives
-        
+
         // Add the pal
         playerPals.push({
           id: `pal-${playerIndex}-${i}`,
@@ -383,20 +397,20 @@ function buildBetterMockData(guildNames: string[], playerNames: string[], palNam
           guildMember: playerName
         });
       }
-      
+
       return {
         id: `player-${playerIndex}`,
         name: playerName,
         pals: playerPals
       };
     });
-    
+
     return {
       guildName,
       members
     };
   });
-  
+
   return guilds;
 }
 
@@ -405,7 +419,7 @@ function buildBetterMockData(guildNames: string[], playerNames: string[], palNam
  */
 function createEnhancedMockGuildData(): GuildData[] {
   console.log("Creating enhanced mock guild data using actual pal definitions");
-  
+
   // Create guild data that uses real pal names and passive abilities
   return [
     {
@@ -464,7 +478,7 @@ function createEnhancedMockGuildData(): GuildData[] {
 function createRandomPassives(count: number): Passive[] {
   const allPassives = Object.entries(PASSIVE_DEFINITIONS);
   const passives: Passive[] = [];
-  
+
   // Create specified number of unique passives
   for (let i = 0; i < count; i++) {
     // Get a random passive that's not already added
@@ -478,7 +492,7 @@ function createRandomPassives(count: number): Passive[] {
       passives.some(p => p.name === passiveEntry[1].name) && 
       attempts < 10
     );
-    
+
     // Add the passive
     passives.push({
       id: `p${i}`,
@@ -487,7 +501,7 @@ function createRandomPassives(count: number): Passive[] {
       rarity: (passiveEntry[1].rarity || "common") as "common" | "uncommon" | "rare" | "epic" | "legendary"
     });
   }
-  
+
   return passives;
 }
 
@@ -500,13 +514,13 @@ function createRealPal(name: string, level: number, passiveNames: string[]): Pal
     // Fall back to a default if name not found
     name = "Lamball";
   }
-  
+
   const passives: Passive[] = passiveNames.map((passiveName, index) => {
     // Find the passive definition that matches this name
     const passiveEntry = Object.entries(PASSIVE_DEFINITIONS).find(
       ([_, definition]) => definition.name === passiveName
     );
-    
+
     if (!passiveEntry) {
       return {
         id: `p${index}`,
@@ -515,7 +529,7 @@ function createRealPal(name: string, level: number, passiveNames: string[]): Pal
         rarity: "common" as const
       };
     }
-    
+
     return {
       id: `p${index}`,
       name: passiveName,
@@ -523,7 +537,7 @@ function createRealPal(name: string, level: number, passiveNames: string[]): Pal
       rarity: (passiveEntry[1].rarity || "common") as "common" | "uncommon" | "rare" | "epic" | "legendary"
     };
   });
-  
+
   return {
     id: `pal-${Math.random().toString(36).substr(2, 9)}`,
     name,
