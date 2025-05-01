@@ -1,9 +1,9 @@
-
 import { useState, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Upload } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { SaveFileData } from '@/types/pal';
+import { parseSaveFile } from '@/utils/saveParser';
 
 interface FileUploaderProps {
   onUploadComplete: (data: SaveFileData) => void;
@@ -56,91 +56,17 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     }
   };
 
-  // Process the file (in a real app this would parse the .sav file)
+  // Process the file using the saveParser
   const processFile = async () => {
     if (!file) return;
     
     setIsUploading(true);
     
-    // In a real implementation, this would parse the .sav file
-    // For now, we'll simulate the parsing with mock data
     try {
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Parse the save file using our utility
+      const saveData = await parseSaveFile(file);
       
-      // Mock data for demonstration
-      const mockData: SaveFileData = {
-        guilds: [
-          {
-            guildName: "Pal Masters",
-            members: [
-              {
-                id: "player1",
-                name: "Trainer1",
-                pals: [
-                  {
-                    id: "pal1",
-                    name: "Lamball",
-                    level: 15,
-                    passives: [{ id: "p1", name: "Quick", description: "Faster movement speed", rarity: "common" }],
-                    owner: "player1",
-                    guildMember: "Trainer1"
-                  },
-                  {
-                    id: "pal2",
-                    name: "Foxparks",
-                    level: 22,
-                    passives: [
-                      { id: "p2", name: "Fire Affinity", description: "Increased fire damage", rarity: "uncommon" }
-                    ],
-                    owner: "player1",
-                    guildMember: "Trainer1"
-                  }
-                ]
-              },
-              {
-                id: "player2",
-                name: "Trainer2",
-                pals: [
-                  {
-                    id: "pal3",
-                    name: "Pengullet",
-                    level: 18,
-                    passives: [
-                      { id: "p3", name: "Ice Affinity", description: "Increased ice resistance", rarity: "uncommon" }
-                    ],
-                    owner: "player2",
-                    guildMember: "Trainer2"
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            guildName: "Pal Hunters",
-            members: [
-              {
-                id: "player3",
-                name: "Trainer3",
-                pals: [
-                  {
-                    id: "pal4",
-                    name: "Direhowl",
-                    level: 30,
-                    passives: [
-                      { id: "p4", name: "Night Hunter", description: "Increased attack at night", rarity: "rare" }
-                    ],
-                    owner: "player3",
-                    guildMember: "Trainer3"
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      };
-      
-      onUploadComplete(mockData);
+      onUploadComplete(saveData);
       
       toast({
         title: "Upload successful",

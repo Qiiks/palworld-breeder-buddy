@@ -23,9 +23,6 @@ export function BreedingTreeVisualizer({ breedingPath }: BreedingTreeVisualizerP
   return (
     <div className="w-full overflow-x-auto">
       <div className="breeding-path min-w-[600px]">
-        {/* For simplification, we're representing a linear breeding path */}
-        {/* In a real implementation, this would be a tree structure */}
-        
         {steps.map((step, stepIndex) => (
           <div key={stepIndex} className="mb-8">
             <div className="flex justify-between items-start relative">
@@ -160,5 +157,3 @@ export function BreedingTreeVisualizer({ breedingPath }: BreedingTreeVisualizerP
     </div>
   );
 }
-
-export default BreedingTreeVisualizer;
