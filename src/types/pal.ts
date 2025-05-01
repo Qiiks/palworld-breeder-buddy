@@ -46,4 +46,5 @@ export interface GuildMember {
 export interface SaveFileData {
   guilds: GuildData[];
   // Other data from Level.sav
+  isMockData?: boolean; // Flag to indicate if this is mock data due to parsing failure
 }

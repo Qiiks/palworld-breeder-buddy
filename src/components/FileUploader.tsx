@@ -1,9 +1,11 @@
+
 import { useState, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Upload } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { SaveFileData } from '@/types/pal';
 import { parseSaveFile } from '@/utils/saveParser';
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 interface FileUploaderProps {
   onUploadComplete: (data: SaveFileData) => void;
@@ -14,6 +16,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
 
   // Handle drag events
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -32,6 +35,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
+    setParseError(null);
     
     const files = e.dataTransfer.files;
     if (files.length) {
@@ -41,7 +45,14 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
 
   // Handle file selection
   const handleFileSelect = (selectedFile: File) => {
-    if (selectedFile.name.endsWith('.sav') || selectedFile.name.toLowerCase().includes('level')) {
+    setParseError(null);
+    
+    // More permissive file type checking
+    if (selectedFile.name.endsWith('.sav') || 
+        selectedFile.name.toLowerCase().includes('level') ||
+        selectedFile.name.toLowerCase().includes('save') ||
+        selectedFile.size > 100000) { // Files over 100KB might be save files
+      
       setFile(selectedFile);
       toast({
         title: "File selected",
@@ -50,9 +61,11 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     } else {
       toast({
         variant: "destructive",
-        title: "Invalid file format",
-        description: "Please upload a Level.sav file from Palworld.",
+        title: "Possible invalid file format",
+        description: "This may not be a Palworld save file. For best results, upload a Level.sav file from your Palworld server.",
       });
+      // Still set the file, but warn the user
+      setFile(selectedFile);
     }
   };
 
@@ -61,30 +74,50 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     if (!file) return;
     
     setIsUploading(true);
+    setParseError(null);
     
     try {
       // Parse the save file using our utility
       const saveData = await parseSaveFile(file);
       
-      onUploadComplete(saveData);
+      // Check if we got mock data due to parsing failure
+      if (saveData.isMockData) {
+        toast({
+          variant: "default",
+          title: "Using sample data",
+          description: "We couldn't fully parse your save file, so we're showing sample data instead.",
+        });
+        setParseError("Note: Using sample data - your actual save file could not be fully parsed.");
+      } else {
+        toast({
+          title: "Upload successful",
+          description: "Your save file has been processed successfully.",
+        });
+      }
       
-      toast({
-        title: "Upload successful",
-        description: "Your save file has been processed successfully.",
-      });
+      onUploadComplete(saveData);
     } catch (error) {
+      console.error("Error processing file:", error);
+      setParseError("Failed to process your save file. Please try another file or contact support.");
       toast({
         variant: "destructive",
         title: "Error processing file",
-        description: "There was a problem processing your save file. Please try again.",
+        description: "There was a problem processing your save file. We'll show sample data instead.",
       });
-      console.error("Error processing file:", error);
+      
+      // Return mock data even on error so the user can still explore the app
+      const mockData = {
+        guilds: [],
+        isMockData: true
+      };
+      onUploadComplete(mockData);
     } finally {
       setIsUploading(false);
     }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setParseError(null);
     if (e.target.files && e.target.files[0]) {
       handleFileSelect(e.target.files[0]);
     }
@@ -98,6 +131,15 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
           Upload your Palworld Level.sav file to analyze guild data and available Pals
         </p>
       </div>
+
+      {parseError && (
+        <Alert className="mb-4 bg-amber-950/30 border-amber-600/50">
+          <AlertTitle className="text-amber-200">Save file note</AlertTitle>
+          <AlertDescription className="text-amber-100/70">
+            {parseError}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div 
         className={`upload-area ${isDragging ? 'border-palaccent glowing-border' : ''} ${file ? 'border-green-400' : ''}`}
@@ -125,7 +167,6 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                   id="file-upload" 
                   type="file" 
                   className="hidden" 
-                  accept=".sav"
                   onChange={handleFileInputChange} 
                 />
               </label>
@@ -141,7 +182,10 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
             <h3 className="text-xl font-medium text-white">File Selected</h3>
             <p className="text-muted-foreground">{file.name}</p>
             <div className="flex space-x-4">
-              <Button variant="outline" onClick={() => setFile(null)}>
+              <Button variant="outline" onClick={() => {
+                setFile(null);
+                setParseError(null);
+              }}>
                 Change File
               </Button>
               <Button 
@@ -166,6 +210,64 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mt-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Having trouble with your save file? Try using sample data to explore the app's features.
+        </p>
+        <Button 
+          variant="link" 
+          className="text-palaccent hover:text-palaccent-light mt-1"
+          onClick={() => {
+            toast({
+              title: "Sample data loaded",
+              description: "Showing sample guild data for demonstration.",
+            });
+            
+            // Generate mock data
+            const mockData = {
+              guilds: [
+                {
+                  guildName: "Sample Guild",
+                  members: [
+                    {
+                      id: "sample1",
+                      name: "SamplePlayer",
+                      pals: [
+                        {
+                          id: "pal-sample1",
+                          name: "Lamball",
+                          level: 15,
+                          passives: [
+                            {id: "ps1", name: "Work Speedster", description: "Increases work speed", rarity: "common" as const}
+                          ],
+                          owner: "sample1",
+                          guildMember: "SamplePlayer"
+                        },
+                        {
+                          id: "pal-sample2", 
+                          name: "Foxparks",
+                          level: 22,
+                          passives: [
+                            {id: "ps2", name: "Nimble", description: "Increases movement speed", rarity: "uncommon" as const}
+                          ],
+                          owner: "sample1",
+                          guildMember: "SamplePlayer"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              isMockData: true
+            };
+            
+            onUploadComplete(mockData);
+          }}
+        >
+          Use Sample Data Instead
+        </Button>
       </div>
     </div>
   );
