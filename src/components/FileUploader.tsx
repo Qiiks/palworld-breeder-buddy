@@ -107,21 +107,14 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
       onUploadComplete(saveData);
     } catch (error) {
       console.error("Error processing file:", error);
-      setParseError("We encountered an issue with your save file. We're showing sample data so you can still explore the app's features.");
+      setParseError(error instanceof Error ? error.message : "Failed to parse save file");
       setParseStatus(null);
       
       toast({
         variant: "destructive",
-        title: "Save file processing issue",
-        description: "There was a problem with your save file, but we'll show you how the app works with sample data.",
+        title: "Save file processing error",
+        description: "Unable to parse the save file. Please ensure you're uploading a valid Palworld Level.sav file.",
       });
-      
-      // Return mock data even on error so the user can still explore the app
-      const mockData = {
-        guilds: [],
-        isMockData: true
-      };
-      onUploadComplete(mockData);
     } finally {
       setIsUploading(false);
     }

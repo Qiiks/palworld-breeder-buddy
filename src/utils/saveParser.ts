@@ -78,10 +78,7 @@ export async function parseSaveFile(file: File): Promise<SaveFileData> {
     throw new Error("No valid game data found");
   } catch (error) {
     console.error("Error parsing save file:", error);
-    return {
-      guilds: createEnhancedMockGuildData(),
-      isMockData: true
-    };
+    throw new Error("Unable to parse save file. Please ensure you're uploading a valid Palworld Level.sav file.");
   }
 }
 
