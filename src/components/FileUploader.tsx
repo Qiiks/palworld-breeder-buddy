@@ -1,20 +1,22 @@
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Upload } from 'lucide-react';
+import { ArrowRight, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { SaveFileData } from '@/types/pal';
-import { parseSaveFile } from '@/utils/saveParser';
+import { SaveFileData } from "@/types/pal";
+import { parseSaveFile } from "@/utils/saveParser";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import * as fs from "fs";
 
 interface FileUploaderProps {
   onUploadComplete: (data: SaveFileData) => void;
 }
 
 export function FileUploader({ onUploadComplete }: FileUploaderProps) {
+  const [file, setFile] = useState<File | null>(null);
+  const [filePath, setFilePath] = useState<string | null>(null);
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [parseStatus, setParseStatus] = useState<string | null>(null);
@@ -37,13 +39,13 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     e.stopPropagation();
     setIsDragging(false);
     setParseError(null);
-    setParseStatus(null);
-    
+    setParseStatus(null);    
     const files = e.dataTransfer.files;
     if (files.length) {
       handleFileSelect(files[0]);
     }
   }, []);
+  
 
   // Handle file selection
   const handleFileSelect = (selectedFile: File) => {
@@ -57,6 +59,13 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
         selectedFile.size > 100000) { // Files over 100KB might be save files
       
       setFile(selectedFile);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const tempFilePath = `/tmp/${selectedFile.name}`;
+        fs.writeFileSync(tempFilePath, Buffer.from(reader.result as ArrayBuffer));
+        setFilePath(tempFilePath);
+      };
+      reader.readAsArrayBuffer(selectedFile);
       toast({
         title: "File selected",
         description: `${selectedFile.name} is ready to process.`,
@@ -74,14 +83,16 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
 
   // Process the file using the saveParser
   const processFile = async () => {
-    if (!file) return;
+    if (!filePath) return;
     
     setIsUploading(true);
     setParseError(null);
     setParseStatus("Analyzing save file structure...");
     
     try {
-      console.log("Starting to process save file:", file.name);
+      console.log("Starting to process save file:", filePath);
+      // Remove the file, now that its no longer needed
+      
       // Parse the save file using our utility
       const saveData = await parseSaveFile(file);
       
@@ -121,9 +132,12 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    
     setParseError(null);
     setParseStatus(null);
     if (e.target.files && e.target.files[0]) {
+      
+      
       handleFileSelect(e.target.files[0]);
     }
   };
@@ -154,10 +168,10 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
           </AlertDescription>
         </Alert>
       )}
-
       <div 
-        className={`upload-area ${isDragging ? 'border-palaccent glowing-border' : ''} ${file ? 'border-green-400' : ''}`}
-        onDragOver={handleDragOver}
+        className={`upload-area ${
+          isDragging ? "border-palaccent glowing-border" : ""
+        } ${file ? "border-green-400" : ""}`}        onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
@@ -183,29 +197,43 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                   className="hidden" 
                   onChange={handleFileInputChange} 
                 />
-              </label>
-            </div>
+              </label>            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-8 w-8 text-green-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </div>
             <h3 className="text-xl font-medium text-white">File Selected</h3>
             <p className="text-muted-foreground">{file.name}</p>
-            <div className="flex space-x-4">
-              <Button variant="outline" onClick={() => {
-                setFile(null);
-                setParseError(null);
-                setParseStatus(null);
-              }}>
+            <div className="flex space-x-4">              <Button
+                variant="outline"
+                onClick={() => {
+                  setFile(null);
+                  setParseError(null);
+                  setParseStatus(null);
+                  setFilePath(null)
+                }}
+              >
                 Change File
               </Button>
               <Button 
                 className="bg-palaccent hover:bg-palaccent-light" 
-                onClick={processFile}
+                onClick={() => {
+                  processFile();
+                }}
                 disabled={isUploading}
               >
                 {isUploading ? (
@@ -226,7 +254,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
           </div>
         )}
       </div>
-
+      
       <div className="mt-6 text-center">
         <p className="text-sm text-muted-foreground">
           Having trouble with your save file? Try using sample data to explore the app's features.
@@ -256,36 +284,39 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                           level: 15,
                           passives: [
                             {id: "ps1", name: "Work Speedster", description: "Increases work speed", rarity: "common" as const}
-                          ],
+                          ], 
                           owner: "sample1",
                           guildMember: "SamplePlayer"
                         },
                         {
-                          id: "pal-sample2", 
+                          id: "pal-sample2",
                           name: "Foxparks",
                           level: 22,
                           passives: [
-                            {id: "ps2", name: "Nimble", description: "Increases movement speed", rarity: "uncommon" as const}
+                            {
+                              id: "ps2",
+                              name: "Nimble",
+                              description: "Increases movement speed",
+                              rarity: "uncommon" as const,
+                            },
                           ],
                           owner: "sample1",
-                          guildMember: "SamplePlayer"
-                        }
-                      ]
-                    }
-                  ]
-                }
+                          guildMember: "SamplePlayer",
+                        },
+                      ],
+                    },
+                  ],
+                },
               ],
               isMockData: true
             };
-            
             onUploadComplete(mockData);
-          }}
-        >
-          Use Sample Data Instead
+          }}>          Use Sample Data Instead
         </Button>
       </div>
     </div>
   );
 }
 
+            
 export default FileUploader;

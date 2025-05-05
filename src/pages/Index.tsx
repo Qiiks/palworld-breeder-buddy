@@ -4,6 +4,7 @@ import Header from '@/components/Header';
 import FileUploader from '@/components/FileUploader';
 import GuildSelector from '@/components/GuildSelector';
 import BreedingCalculator from '@/components/BreedingCalculator';
+import GuildDisplay from '@/components/GuildDisplay';
 import { SaveFileData, GuildData } from '@/types/pal';
 
 export default function Index() {
@@ -35,23 +36,27 @@ export default function Index() {
           </p>
         </div>
 
-        {!saveFileData ? (
+        {(!saveFileData) ? (
           <FileUploader onUploadComplete={handleUploadComplete} />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1">
-              <GuildSelector 
-                guilds={saveFileData.guilds} 
-                onGuildSelect={handleGuildSelect} 
-              />
+          <>
+          <GuildDisplay data={saveFileData}/>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <GuildSelector 
+                  guilds={saveFileData.guilds} 
+                  onGuildSelect={handleGuildSelect} 
+                />
+              </div>
+              
+              <div className="lg:col-span-2">
+                {selectedGuild && (
+                  <BreedingCalculator guild={selectedGuild} />
+                )}
+              </div>
             </div>
             
-            <div className="lg:col-span-2">
-              {selectedGuild && (
-                <BreedingCalculator guild={selectedGuild} />
-              )}
-            </div>
-          </div>
+          </>
         )}
 
         <div className="mt-16 text-center">
