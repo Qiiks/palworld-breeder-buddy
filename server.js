@@ -34,16 +34,31 @@ app.post('/parse-save', upload.single('file'), (req, res) => {
   
   console.log('Starting request handler for /parse-save');
   try {
-    console.log('Starting request handler for /parse-save');
-
     if (req.fileValidationError) {
       console.error('Multer file validation error:', req.fileValidationError);
-      console.log("------------------------------------------------")
+      console.log("------------------------------------------------");
       return res.status(400).send('File validation error.');
-    }   
-      console.log('Ending request handler for /parse-save');
-      res.status(200).send('Hello, World!');
+    }
 
+    if (!req.file) {
+        return res.status(400).send('No file uploaded.');
+    }
+
+    const filePath = req.file.path;
+    console.log('File path:', filePath);
+    const pythonScriptPath = path.join(__dirname, 'python_scripts', 'save_parser.py');
+    console.log('Python script path:', pythonScriptPath);
+    const command = `python3 ${pythonScriptPath} "${filePath}"`;
+    console.log('Command:', command);
+
+    const result = execSync(command, { encoding: 'utf-8' });
+    console.log('Result:', result);
+    fs.unlinkSync(filePath);
+    res.send(result);
+
+    console.log('Ending request handler for /parse-save');
+
+    
   } catch (error) {
     console.error('An unexpected error occurred in /parse-save handler:');
     console.error('Error:', error);
