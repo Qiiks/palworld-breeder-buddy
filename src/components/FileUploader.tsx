@@ -88,8 +88,13 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to parse file");
+        try {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to parse file");
+        } catch (jsonError) {
+          const errorText = await response.text();
+          throw new Error(errorText || "Failed to parse file");
+        }
       }
 
       const parsedResult = await response.json();
