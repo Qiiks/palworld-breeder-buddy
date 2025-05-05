@@ -1,12 +1,9 @@
-
 import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SaveFileData } from "@/types/pal";
-import { parseSaveFile } from "@/utils/saveParser";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import * as fs from "fs";
 
 interface FileUploaderProps {
   onUploadComplete: (data: SaveFileData) => void;
@@ -14,8 +11,8 @@ interface FileUploaderProps {
 
 export function FileUploader({ onUploadComplete }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [filePath, setFilePath] = useState<string | null>(null);
   const { toast } = useToast();
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -39,7 +36,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     e.stopPropagation();
     setIsDragging(false);
     setParseError(null);
-    setParseStatus(null);    
+    setParseStatus(null);
     const files = e.dataTransfer.files;
     if (files.length) {
       handleFileSelect(files[0]);
@@ -51,21 +48,12 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
   const handleFileSelect = (selectedFile: File) => {
     setParseError(null);
     setParseStatus(null);
-    
+
     // More permissive file type checking
-    if (selectedFile.name.endsWith('.sav') || 
-        selectedFile.name.toLowerCase().includes('level') ||
-        selectedFile.name.toLowerCase().includes('save') ||
-        selectedFile.size > 100000) { // Files over 100KB might be save files
-      
+    if (selectedFile.name.endsWith(".sav") || selectedFile.name.toLowerCase().includes("level") || selectedFile.name.toLowerCase().includes("save") || selectedFile.size > 100000) {
+      // Files over 100KB might be save files
+
       setFile(selectedFile);
-      const reader = new FileReader();
-      reader.onload = () => {
-        const tempFilePath = `/tmp/${selectedFile.name}`;
-        fs.writeFileSync(tempFilePath, Buffer.from(reader.result as ArrayBuffer));
-        setFilePath(tempFilePath);
-      };
-      reader.readAsArrayBuffer(selectedFile);
       toast({
         title: "File selected",
         description: `${selectedFile.name} is ready to process.`,
@@ -81,20 +69,31 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
     }
   };
 
-  // Process the file using the saveParser
+  // Process the file by sending it to the server
   const processFile = async () => {
-    if (!filePath) return;
-    
     setIsUploading(true);
     setParseError(null);
     setParseStatus("Analyzing save file structure...");
-    
+
     try {
-      console.log("Starting to process save file:", filePath);
-      // Remove the file, now that its no longer needed
-      
-      // Parse the save file using our utility
-      const saveData = await parseSaveFile(file);
+      if (!file) {
+        throw new Error("No file selected");
+      }
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("http://localhost:3001/parse-save", { // Update the fetch url here
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to parse file");
+      }
+
+      const parsedResult = await response.json();
+      const saveData = { guilds: parsedResult, isMockData: false };
       
       setParseStatus("Processing guild data...");
       
@@ -105,20 +104,20 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
           title: "Using enhanced data representation",
           description: "We've analyzed your save file and created a representative dataset based on its contents.",
         });
-        setParseStatus(null);
-        setParseError("Note: Your save file was analyzed and we're showing a representation based on patterns found in the file.");
+        setUploadError("Note: Your save file was analyzed and we're showing a representation based on patterns found in the file.");
       } else {
         toast({
           title: "Upload successful",
           description: "Your save file has been processed successfully.",
         });
-        setParseStatus(null);
       }
       
       onUploadComplete(saveData);
+
+      setParseStatus(null);
     } catch (error) {
       console.error("Error processing file:", error);
-      setParseError(error instanceof Error ? error.message : "Failed to parse save file");
+      setUploadError(error instanceof Error ? error.message : "Failed to parse save file");
       setParseStatus(null);
       
       toast({
@@ -132,12 +131,9 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    
     setParseError(null);
     setParseStatus(null);
-    if (e.target.files && e.target.files[0]) {
-      
-      
+    if (e.target.files && e.target.files[0]) {      
       handleFileSelect(e.target.files[0]);
     }
   };
@@ -158,6 +154,16 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
             {parseError}
           </AlertDescription>
         </Alert>
+      )}{" "}
+
+      {uploadError && (
+        <Alert className="mb-4 bg-red-950/30 border-red-600/50">
+
+          <AlertTitle className="text-red-200">Upload error</AlertTitle>
+          <AlertDescription className="text-amber-100/70">
+            {parseError}
+          </AlertDescription>
+        </Alert>
       )}
 
       {parseStatus && (
@@ -169,11 +175,11 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
         </Alert>
       )}
       <div 
-        className={`upload-area ${
-          isDragging ? "border-palaccent glowing-border" : ""
-        } ${file ? "border-green-400" : ""}`}        onDragOver={handleDragOver}
+        className={`upload-area ${isDragging ? "border-palaccent glowing-border" : ""} ${file ? "border-green-400" : ""}`}
+        onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+
       >
         {!file ? (
           <div className="flex flex-col items-center justify-center text-center">
@@ -192,10 +198,11 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                   Select File
                 </Button>
                 <input 
-                  id="file-upload" 
-                  type="file" 
-                  className="hidden" 
-                  onChange={handleFileInputChange} 
+                  id="file-upload"
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileInputChange}
+
                 />
               </label>            </div>
           </div>
@@ -224,8 +231,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                   setFile(null);
                   setParseError(null);
                   setParseStatus(null);
-                  setFilePath(null)
-                }}
+                 }}
               >
                 Change File
               </Button>
@@ -235,6 +241,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                   processFile();
                 }}
                 disabled={isUploading}
+
               >
                 {isUploading ? (
                   <>
@@ -254,7 +261,8 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
           </div>
         )}
       </div>
-      
+
+
       <div className="mt-6 text-center">
         <p className="text-sm text-muted-foreground">
           Having trouble with your save file? Try using sample data to explore the app's features.
@@ -284,7 +292,7 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
                           level: 15,
                           passives: [
                             {id: "ps1", name: "Work Speedster", description: "Increases work speed", rarity: "common" as const}
-                          ], 
+                          ],
                           owner: "sample1",
                           guildMember: "SamplePlayer"
                         },
@@ -310,8 +318,9 @@ export function FileUploader({ onUploadComplete }: FileUploaderProps) {
               ],
               isMockData: true
             };
+
             onUploadComplete(mockData);
-          }}>          Use Sample Data Instead
+          }}> Use Sample Data Instead
         </Button>
       </div>
     </div>

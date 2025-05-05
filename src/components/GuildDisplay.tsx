@@ -4,7 +4,7 @@ interface GuildDisplayProps {
   saveData: SaveFileData;
 }
 
-export function GuildDisplay({ saveData }: GuildDisplayProps) {
+export default function GuildDisplay({ saveData }: GuildDisplayProps) {
   return (
     <div className="glass-panel p-8">
       {saveData.guilds.length > 0 ? (
