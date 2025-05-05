@@ -44,17 +44,26 @@ class Pal:
 def read_string(data, offset):
     print("Starting to read string")
     try:
-        length = struct.unpack("<i", data[offset : offset + 4])[0]
+        print(f"offset at start: {offset}, data length: {len(data)}")
+        print(f"trying to read length at {offset}")
+        length = struct.unpack("<I", data[offset : offset + 4])[0]
+        print(f"length: {length}")
+
         offset += 4
         if length == 0:
+            print("length was 0")
             return "", offset
 
         is_utf16 = length < 0
         text_length = abs(length)
         if text_length > 0:
+            print("text_length > 0")
             offset += 4
 
         if offset + text_length > len(data):
+
+            print(f"String read would exceed buffer bounds")
+
             raise ValueError("String read would exceed buffer bounds")
         if is_utf16:
             string = data[offset : offset + text_length].decode("utf-16le", errors="ignore").rstrip("\000")
@@ -72,6 +81,7 @@ def read_guid(data, offset):
 
 
 def parse_gvas_header(data):
+
     try:
         magic = struct.unpack("<I", data[0:4])[0]
         magic_str = data[0:4].decode("latin-1")
@@ -103,12 +113,16 @@ def parse_gvas_header(data):
 
 
 def parse_gvas_properties(data, offset):
+    print(f"Calling properties with offset: {offset}")
     print("parsing gvas properties")
     properties = {}
     print("Starting to loop through properties")
     while offset < len(data):
         print(f"Offset: {offset}, data length: {len(data)}")
         property_name, offset = read_string(data, offset)
+        print(f"property_name: {property_name}")
+
+
         if not property_name or property_name == "None":
             print(f"property name: {property_name}")
             break
@@ -169,8 +183,8 @@ def parse_gvas_properties(data, offset):
             print(f"Unknown property type: {property_type}")
             if property_size > 0:
                 offset += property_size
-        
         print(f"property type: {property_type}")
+
             continue
         properties[property_name] = {"type": property_type, "value": value}
     print(f"properties: {properties}")
@@ -191,6 +205,7 @@ def try_decompress(data):
 
 
 def decompress_gvas(data,file_path):
+
     print("Starting to decompress gvas")
     try:
         magic = struct.unpack("<I", data[0:4])[0]
@@ -222,6 +237,7 @@ def decompress_gvas(data,file_path):
                     return current_data[gvas_offset:], compression_count
         raise ValueError("Could not find GVAS header in decompressed data")
     except Exception as e:
+
         print(f"Exception in decompress gvas: {e}")
         raise Exception(f"Error in decompress_gvas: {e}")
 
@@ -293,9 +309,11 @@ def parse_save_file(file_content, file_path):
         data, compression_count = decompress_gvas(file_content, file_path)
         header = parse_gvas_header(data)
         properties, _ = parse_gvas_properties(data, 28)
+        print(f"Calling parse gvas properties with offset: {offset}")
         guilds = parse_guild_data(properties)
         print(f"gvas header {header}")
         if not guilds:
+
             raise Exception("No guild data found")
         print(f"Python Log: guild data found {guilds}")
         return guilds
